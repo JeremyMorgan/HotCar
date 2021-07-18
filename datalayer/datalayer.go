@@ -9,10 +9,10 @@ import (
 )
 
 func CreateDatabase(dbname string) (bool, error) {
-	if _, err := os.Stat(dbname + ".db"); err == nil {
+	if _, err := os.Stat(dbname); err == nil {
 		log.Println("Database exists, skipping creation")
 	} else if os.IsNotExist(err) {
-		file, err := os.Create(dbname + ".db")
+		file, err := os.Create(dbname)
 		if err != nil {
 			return false, err
 		}
@@ -23,11 +23,13 @@ func CreateDatabase(dbname string) (bool, error) {
 
 func CreateTable(db *sql.DB) (bool, error) {
 	createReadingSql := `CREATE TABLE IF NOT EXISTS Reading ( 
-		"TimeStamp" TEXT,
+		"TimeStamp" TEXT,		
 		"CarHumidity" FLOAT,
-		"CarTemperature" FLOAT,
+		"CarTemperatureFahrenheit" FLOAT,
+		"CarTemperatureCelcius" FLOAT,
 		"OutsideHumidity" FLOAT,
-		"OutsideTemperature" FLOAT);`
+		"OutsideTemperatureFahrenheit" FLOAT,
+		"OutsideTemperatureCelcius" FLOAT);`
 
 	statement, err := db.Prepare(createReadingSql)
 	if err != nil {
@@ -39,7 +41,10 @@ func CreateTable(db *sql.DB) (bool, error) {
 
 func FirstInsert(db *sql.DB, timestamp string, value float64) (bool, error) {
 
-	insertReadingSql := `INSERT INTO Reading (TimeStamp, CarTemperature) VALUES (?,?)`
+	fahrenheit := value
+	celcius := ((fahrenheit - 32) * 5 / 9)
+
+	insertReadingSql := `INSERT INTO Reading (TimeStamp, CarTemperatureFahrenheit, CarTemperatureCelcius) VALUES (?,?,?)`
 
 	statement, err := db.Prepare(insertReadingSql)
 
@@ -48,7 +53,7 @@ func FirstInsert(db *sql.DB, timestamp string, value float64) (bool, error) {
 		return false, err
 	}
 
-	_, err = statement.Exec(timestamp, value)
+	_, err = statement.Exec(timestamp, fahrenheit, celcius)
 
 	if err != nil {
 		log.Println("Failed to insert data")
@@ -59,21 +64,47 @@ func FirstInsert(db *sql.DB, timestamp string, value float64) (bool, error) {
 	return true, nil
 }
 
-func InsertData(db *sql.DB, columnname string, timestamp string, value float64) (bool, error) {
+func UpdateData(db *sql.DB, columnname string, timestamp string, value float64, temperature bool) (bool, error) {
 
-	updateReadingSql := `UPDATE Reading SET ` + columnname + ` =? WHERE TimeStamp = ?`
+	updateReadingSql := ""
 
-	statement, err := db.Prepare(updateReadingSql)
+	if temperature {
+		// if its a temperature
+		fahrenheit := value
+		celcius := ((fahrenheit - 32) * 5 / 9)
 
-	if err != nil {
-		log.Println("Failed to prepare SQL Statement")
-		return false, err
-	}
-	_, err = statement.Exec(value, timestamp)
+		updateReadingSql = `UPDATE Reading SET ` + columnname + "fahrenheit" + ` =?, ` + columnname + "celcius" + ` =? WHERE TimeStamp = ?`
 
-	if err != nil {
-		log.Println("Failed to insert data")
-		return false, err
+		statement, err := db.Prepare(updateReadingSql)
+
+		if err != nil {
+			log.Println(updateReadingSql)
+			log.Println("Failed to prepare SQL Statement")
+			return false, err
+		}
+		_, err = statement.Exec(fahrenheit, celcius, timestamp)
+
+		if err != nil {
+			log.Println("Failed to insert data")
+			return false, err
+		}
+	} else {
+		// if it's humidity
+		updateReadingSql = `UPDATE Reading SET ` + columnname + ` =? WHERE TimeStamp = ?`
+		statement, err := db.Prepare(updateReadingSql)
+
+		if err != nil {
+			log.Printf("Column is %v", columnname)
+			log.Println(updateReadingSql)
+			log.Println("Failed to prepare SQL Statement")
+			return false, err
+		}
+		_, err = statement.Exec(value, timestamp)
+
+		if err != nil {
+			log.Println("Failed to insert data")
+			return false, err
+		}
 	}
 
 	return true, nil
